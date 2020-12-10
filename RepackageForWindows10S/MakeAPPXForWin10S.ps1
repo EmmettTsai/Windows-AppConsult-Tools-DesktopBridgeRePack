@@ -105,7 +105,7 @@ function Work($AppxOrBundleFile, $InsideAppx) {
     Write-Host "[INFO] Unzipped folder = '$UnzippedFolder'"
     Write-Host "[WORK] Extracting files from '$AppxOrBundleFile' to '$UnzippedFolder'..."
 
-    if($FileExtension -eq '.APPX') {
+    if($FileExtension -eq '.APPX' -or $FileExtension -eq '.MSIX') {
         # APPX
         & 'C:\Program Files (x86)\Windows Kits\10\App Certification Kit\makeappx.exe' unpack /p $AppxOrBundleFile /d $UnzippedFolder /l /o
     }
@@ -121,24 +121,39 @@ function Work($AppxOrBundleFile, $InsideAppx) {
     $Index += 1
     Write-Progress -Activity "[$($Index)/$($Steps)] Make Appx/Bundle for Windows 10S" -status "Modifying AppxManifest.xml file" -PercentComplete ($Index / $Steps * 100)
 
-    # So we are looking for Publisher="CN=Blabla.ï¿½&  blablabla!?; etc..."
-    # or Publisher='CN=Blabla.ï¿½&  blablabla!?; etc...'
-    if($FileExtension -eq '.APPX') {
+    # So we are looking for Publisher="CN=Blabla.ï¿?  blablabla!?; etc..."
+    # or Publisher='CN=Blabla.ï¿?  blablabla!?; etc...'
+    if($FileExtension -eq '.APPX' -or $FileExtension -eq '.MSIX') {
         # APPX
         $AppxManifestFile = $UnzippedFolder + "\AppxManifest.xml"
         Write-Host "[WORK] Modifying the '$AppxManifestFile' to use Publisher=""CN=Appx Test Root Agency Ex""..."
         ModifyManifestFile($AppxManifestFile)    
     }
     else {
-        # BUNDLE
-        $AppxManifestFile = $UnzippedFolder + "\AppxMetadata\AppxBundleManifest.xml"
-        Write-Host "[WORK] Modifying the '$AppxManifestFile' to use Publisher=""CN=Appx Test Root Agency Ex""..."
-        ModifyManifestFile($AppxManifestFile)
+        if($FileExtension -eq '.APPXBUNDLE') {
+            # BUNDLE
+            $AppxManifestFile = $UnzippedFolder + "\AppxMetadata\AppxBundleManifest.xml"
+            Write-Host "[WORK] Modifying the '$AppxManifestFile' to use Publisher=""CN=Appx Test Root Agency Ex""..."
+            ModifyManifestFile($AppxManifestFile)
+
+            # All Manifest of all packages have to be modified
+            Get-ChildItem $UnzippedFolder -Filter *.appx |
+            Foreach-Object {
+                Work -AppxOrBundleFile $_.FullName -InsideAppx $true
+            }
+        }
+        else {
+            # .MSIXBUNDLE
+            # BUNDLE
+            $AppxManifestFile = $UnzippedFolder + "\AppxMetadata\AppxBundleManifest.xml"
+            Write-Host "[WORK] Modifying the '$AppxManifestFile' to use Publisher=""CN=Appx Test Root Agency Ex""..."
+            ModifyManifestFile($AppxManifestFile)
         
-        # All Manifest of all packages have to be modified
-        Get-ChildItem $UnzippedFolder -Filter *.appx | 
-        Foreach-Object {
-            Work -AppxOrBundleFile $_.FullName -InsideAppx $true     
+            # All Manifest of all packages have to be modified
+            Get-ChildItem $UnzippedFolder -Filter *.msix |
+            Foreach-Object {
+                Work -AppxOrBundleFile $_.FullName -InsideAppx $true
+            }
         }
     }
 
@@ -149,13 +164,18 @@ function Work($AppxOrBundleFile, $InsideAppx) {
     $Index += 1
     Write-Progress -Activity "[$($Index)/$($Steps)] Make Appx/Bundle for Windows 10S" -status "Repackaging the Appx/Bundle file" -PercentComplete ($Index / $Steps * 100)
     $ModifiedAppxBundleFile = ""
-    if($FileExtension -eq '.APPX') {
+    if($FileExtension -eq '.APPX' -or $FileExtension -eq '.MSIX') {
         # APPX
         if ($InsideAppx) {
             $ModifiedAppxBundleFile = $AppxOrBundleFile
         }
         else {
-            $ModifiedAppxBundleFile = $AppxPathOnly + "\" + $AppxOrBundleFilenameWithoutExtension + "StoreSigned.appx"
+            if ($FileExtension -eq '.APPX') {
+                $ModifiedAppxBundleFile = $AppxPathOnly + "\" + $AppxOrBundleFilenameWithoutExtension + "StoreSigned.appx"
+            }
+            else {
+                $ModifiedAppxBundleFile = $AppxPathOnly + "\" + $AppxOrBundleFilenameWithoutExtension + "StoreSigned.msix"
+            }
         }
         & 'C:\Program Files (x86)\Windows Kits\10\App Certification Kit\makeappx.exe' pack -p $ModifiedAppxBundleFile -d $UnzippedFolder -l -o
     }
@@ -222,8 +242,8 @@ if ($AppxOrBundleFile -eq '') {
 }
 
 $FileExtension = ([System.IO.Path]::GetExtension($AppxOrBundleFile)).ToUpper()
-if ($FileExtension -ne '.APPX' -and $FileExtension -ne '.APPXBUNDLE') {
-    Write-Host "[Error] '$AppxOrBundleFile' is not either a .APPX or a .APPXBUNDLE file." -ForegroundColor Red
+if ($FileExtension -ne '.APPX' -and $FileExtension -ne '.MSIX' -and $FileExtension -ne '.APPXBUNDLE' -and $FileExtension -ne '.MSIXBUNDLE') {
+    Write-Host "[Error] '$AppxOrBundleFile' is not either a .APPX/.MSIX or a .APPXBUNDLE/.MSIXBUNDLE file." -ForegroundColor Red
     Write-Host "Please use 'get-help .\MakeAPPXForWin10S.ps1' for more details" 
     exit 
 }
